@@ -2,4 +2,9 @@
 .Rhistory
 .RData
 .Ruserdata
-.gz
+*.gz
+/plots
+*.tsv
+*.DS_Store
+cache
+/outs
