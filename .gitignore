@@ -10,3 +10,5 @@ cache
 /outs
 /.future
 slurm-*
+*.pdf
+*.tmpl
