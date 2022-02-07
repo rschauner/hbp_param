@@ -1,4 +1,5 @@
 library(Seurat)
+library(harmony)
 library(here)
 library(readxl)
 library(SeuratDisk)
@@ -10,6 +11,8 @@ library(future)
 library(tidyverse)
 library(xfun)
 
+plan("multiprocess")
+
 seurat <- LoadH5Seurat(file.path(Sys.getenv("AML_DATA"), "05_seurat_annotated.h5Seurat"),
                        assays = c("SCT"))
 
@@ -20,15 +23,24 @@ if (DefaultAssay(seurat) == "RNA") {
   seurat <- FindVariableFeatures(seurat, selection.method = "vst", nfeatures = 2000)
 }
 
-hbp_genes <- c("GFAP", "NAGK", "GNPNAT1", "PGM3", "UBAP1", "OGT", "MGEA5", "WNK1", "REL")
+hbp_genes <- c(
+    "GFAP", "NAGK", "GNPNAT1", "PGM3",
+    "UBAP1", "OGT", "MGEA5", "WNK1",
+    "REL", "GFPT2"
+    )
+  
+seurat <- cache_rds({
+  seurat <- GetResidual(seurat, features = hbp_genes)
+  seurat <- RunPCA(seurat, verbose = FALSE)
+  seurat <- RunHarmony(seurat, c("seq_batch", "sort_batch"))
+  seurat <- RunUMAP(seurat, dims = 1:20, reduction = "harmony")
+  seurat <- FindNeighbors(seurat, dims = 1:20)
+  seurat <- FindClusters(seurat, resolution = 0.6)
+  },
+  file = "total_dim_red.rds"
+)
 
-seurat <- cache_rds(
-  DoDimensionReductions(seurat, batch_vars = c("seq_batch", "sort_batch")),
-  filename = "total_dim_red.rds")
-seurat <- ScaleData(seurat, features = c(VariableFeatures(seurat), hbp_genes))
-
-plan("multiprocess", workers = 16)
-
+print("Doing Differential Expression ------")
 seurat_sub <- subset(seurat, downsample = 1000)
 
 #markers <- FindAllMarkers(seurat_sub, test.use = "MAST")
@@ -49,6 +61,8 @@ markers <- FindMarkers(
 )
 markers <- rownames_to_column(markers, var = "gene")
 write_tsv(markers, file = here("timepoint_DE_results_SCT_HBP.tsv"))
+
+print("Doing Printing Plots ------")
 
 if (!dir.exists(here("plots"))) dir.create(here("plots"))
 
@@ -102,6 +116,8 @@ VlnPlot(seurat, c("MGEA5", "OGT"), group.by = "patient_id", split.by = "timepoin
 graphics.off()
 
 ## GSVA based on MGEA5 expression ----
+
+print("Doing GSEA ------")
 Idents(seurat) <- "MGEA5_neg"
 Idents(seurat, cells = WhichCells(seurat, expression = MGEA5 > 0.5)) <- "MGEA5_lo"
 Idents(seurat, cells = WhichCells(seurat, expression = MGEA5 > 2)) <- "MGEA5_hi"
