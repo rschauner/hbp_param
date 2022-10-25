@@ -1,0 +1,25 @@
+name: hbp
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - r=4.0
+  - r-here
+  - r-tidyverse=1.3.2
+  - r-readxl
+  - ca-certificates
+  - openssl
+  - r-future
+  - r-xfun
+  - r-msigdbr
+  - r-patchwork
+  - r-seurat=4.1.1
+  - r-seuratdisk
+  - bioconductor-limma=3.46.0
+  - bioconductor-enhancedvolcano
+  - bioconductor-mast=1.16.0
+  - radian
+  - r-harmony
+  - r-data.table
+  - r-future.apply
+  - r-ggsignif

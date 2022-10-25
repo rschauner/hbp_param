@@ -11,10 +11,12 @@ library(future)
 library(tidyverse)
 library(xfun)
 
-plan("multiprocess")
+plan("multicore")
 
-seurat <- LoadH5Seurat(file.path(Sys.getenv("AML_DATA"), "05_seurat_annotated.h5Seurat"),
-                       assays = c("SCT"))
+seurat <- LoadH5Seurat(
+  file.path(Sys.getenv("AML_DATA"), "05_seurat_annotated.h5Seurat.old"),
+  assays = c("RNA", "SCT")
+)
 
 DefaultAssay(seurat) <- "SCT"
 
@@ -23,157 +25,166 @@ if (DefaultAssay(seurat) == "RNA") {
   seurat <- FindVariableFeatures(seurat, selection.method = "vst", nfeatures = 2000)
 }
 
-hbp_genes <- c(
-    "GFAP", "NAGK", "GNPNAT1", "PGM3",
-    "UBAP1", "OGT", "MGEA5", "WNK1",
-    "REL", "GFPT2"
-    )
+hbp_genes <- c("GFAP", "NAGK", "GNPNAT1", "PGM3", "UAP1", "OGT", "OGA", "GFPT1", "GFPT2")
   
 seurat <- cache_rds({
   seurat <- GetResidual(seurat, features = hbp_genes)
   seurat <- RunPCA(seurat, verbose = FALSE)
-  seurat <- RunHarmony(seurat, c("seq_batch", "sort_batch"))
-  seurat <- RunUMAP(seurat, dims = 1:20, reduction = "harmony")
+  #seurat <- RunHarmony(seurat, c("seq_batch", "sort_batch"))
+  seurat <- RunUMAP(seurat, dims = 1:20)
   seurat <- FindNeighbors(seurat, dims = 1:20)
   seurat <- FindClusters(seurat, resolution = 0.6)
   },
   file = "total_dim_red.rds"
 )
 
-print("Doing Differential Expression ------")
+message("Doing Differential Expression ------")
 seurat_sub <- subset(seurat, downsample = 1000)
 
-#markers <- FindAllMarkers(seurat_sub, test.use = "MAST")
-#write_tsv(markers, file = here("cluster_DE_results_SCT.tsv"))
-
-markers <- FindAllMarkers(seurat_sub, test.use = "MAST", features = hbp_genes)
-write_tsv(markers, file = here("cluster_DE_results_SCT_HBP.tsv"))
+FindMarkers <- function(...) {
+  res <- Seurat::FindMarkers(...)
+  res <- rownames_to_column(res, var = "gene")
+  return(res)
+}
 
 seurat_sub <- subset(seurat_sub, subset = paired == "T")
 markers <- FindMarkers(
   seurat_sub, 
-  test.use = "MAST", 
+  test.use = "MAST",
   features = hbp_genes, 
   group.by = "timepoint", 
   ident.1 = "Diagnosis", 
   ident.2 = "Relapse",
   logfc.threshold = 0
 )
-markers <- rownames_to_column(markers, var = "gene")
-write_tsv(markers, file = here("timepoint_DE_results_SCT_HBP.tsv"))
 
-print("Doing Printing Plots ------")
+write_tsv(markers, file = here("results/timepoint_DE_results_SCT_HBP.tsv"))
+
+seurat_split <- SplitObject(seurat_sub, split.by = "patient_id")
+seurat_split <- keep(seurat_split, ~nrow(unique(.x[["timepoint"]])) == 2)
+markers <- map_dfr(seurat_split,
+  FindMarkers,
+  test.use = "MAST",
+  features = hbp_genes,
+  group.by = "timepoint",
+  ident.1 = "Diagnosis",
+  ident.2 = "Relapse",
+  logfc.threshold = 0,
+  .id = "patient_id"
+)
+
+write_tsv(markers, file = here("results/timepoint_DE_results_SCT_HBP_per_pat.tsv"))
+
+pdf(file = here("plots/violin_plot.pdf"), width = 10, height = 10)
+for (i in c("timepoint", "stemness", "prognosis")) {
+  VlnPlot(
+    seurat,
+    slot = "scale.data",
+    features = hbp_genes,
+    group.by = i,
+    split.by = "paitent_id"
+  )
+}
+graphics.off()
+
+message("Subsetting for Plotting ------")
+subset_seurat <- list(
+  paired_stem = subset(seurat, subset = stemness == "Stem" & paired == "T"),
+  paired_nonstem = subset(seurat, subset = stemness == "Nonstem" & paired == "T"),
+  diagnosis_stem = subset(seurat, subset = stemness == "Stem" & timepoint == "Diagnosis"),
+  diagnosis_nonstem = subset(seurat, subset = stemness == "Nonstem" & timepoint == "Diagnosis"),
+  diagnosis_only = subset(seurat, subset = timepoint == "Diagnosis"),
+  paired_only = subset(seurat, subset = paired == "T")
+)
+
+message("Doing Printing Plots ------")
 
 if (!dir.exists(here("plots"))) dir.create(here("plots"))
 
 ## Feature Plots ----
-pdf(file = here("plots/feature_plots_SCT.pdf"), width = 10, height = 10)
-a <- FeaturePlot(subset(seurat, subset = stemness == "Stem" & paired == "T"),
-                 features = hbp_genes,
-                 split.by = "timepoint") +
+a <- FeaturePlot(
+  subset_seurat[["paired_stem"]],
+  features = hbp_genes,
+  split.by = "timepoint") +
   plot_annotation(title = "Stem | Paired Only | Feature Plot By Timepoint") +
   plot_layout(ncol = 4)
 
-b <- FeaturePlot(subset(seurat, subset = stemness == "Nonstem" & paired == "T"),
-                 features = hbp_genes) +
-  plot_annotation(title = "Nonstem | Paired Only | Feature Plot By Timepoint")
+b <- FeaturePlot(
+  subset_seurat[["paired_nonstem"]],
+  features = hbp_genes) +
+plot_annotation(title = "Nonstem | Paired Only | Feature Plot By Timepoint")
 
-c <- FeaturePlot(subset(seurat, subset = stemness == "Stem" & timepoint == "Diagnosis"),
-                 features = hbp_genes,
-                 split.by = "prognosis") +
-  plot_annotation(title = "Stem | Diagnosis Only | Feature Plot By Prognosis") +
-  plot_layout(ncol = 4)
+c <- FeaturePlot(
+  subset_seurat[["diagnosis_stem"]],
+  features = hbp_genes,
+  split.by = "prognosis") +
+plot_annotation(title = "Stem | Diagnosis Only | Feature Plot By Prognosis") +
+plot_layout(ncol = 4)
 
-d <- FeaturePlot(subset(seurat, subset = stemness == "Nonstem" & timepoint == "Diagnosis"),
-                 features = hbp_genes) +
-  plot_annotation(title = "Nonstem | Diagnosis Only | Feature Plot of HBP Genes")
+d <- FeaturePlot(
+  subset_seurat[["diagnosis_nonstem"]],
+  features = hbp_genes) +
+plot_annotation(title = "Nonstem | Diagnosis Only | Feature Plot of HBP Genes")
 
 e <- DotPlot(seurat, features = hbp_genes, cluster.idents = TRUE) +
   plot_annotation(title = "Stem + Nonstem | All Samples | Dot Plot By Cluster")
 
-f <- DotPlot(seurat, features = hbp_genes, group.by = "timepoint") +
-  NoLegend() +
-  FontSize(x.text = 0, x.title = 0, y.title = 0)
-g <- DotPlot(seurat, features = hbp_genes, group.by = "prognosis") +
-  FontSize(x.text = 0, x.title = 0, y.title = 0)
-h <- DotPlot(seurat, features = hbp_genes, group.by = "stemness") +
-  NoLegend() +
-  FontSize(y.title = 0)
+f <- DotPlot(subset_seurat[["paired_only"]], features = hbp_genes, group.by = "timepoint", scale = FALSE) +
+NoLegend() +
+FontSize(x.text = 0, x.title = 0, y.title = 0)
+g <- DotPlot(subset_seurat[["diagnosis_only"]], features = hbp_genes, group.by = "prognosis", scale = FALSE) +
+FontSize(x.text = 0, x.title = 0, y.title = 0)
+h <- DotPlot(subset_seurat[["diagnosis_only"]], features = hbp_genes, group.by = "stemness", scale = FALSE) +
+NoLegend() +
+FontSize(y.title = 0)
 
 p <- f / g / h +
   plot_annotation(title = "Stem + Nonstem | All Samples | Dot Plot By Timepoint/Prognosis/Stemness")
 
+
+md<- mutate(
+  seurat[[]],
+  pat_time = paste0(patient_id, "_", timepoint)
+)
+seurat[["pat_time"]] <- md[["pat_time"]]
+
+n <- DotPlot(seurat, features = c("OGA", "OGT"), group.by = "pat_time") +
+  plot_annotation(title = "Stem + Nonstem | All Samples | Dot Plot by Timepoint and Patient")
+
+pdf(file = here("plots/feature_plots_SCT.pdf"), width = 10, height = 10)
 print(a)
 print(b)
 print(c)
 print(d)
 print(e)
+graphics.off()
+
+pdf(file = here("plots/dot_plots_SCT.pdf"), width = 10, height = 10)
 print(p)
-
-VlnPlot(seurat, c("MGEA5", "OGT"), group.by = "patient_id", split.by = "timepoint") +
-  plot_annotation(title = "Stem + Nonstem | All Samples | Violin Plot by Timepoint and Patient")
-
+print(n)
 graphics.off()
 
-## GSVA based on MGEA5 expression ----
 
-print("Doing GSEA ------")
-Idents(seurat) <- "MGEA5_neg"
-Idents(seurat, cells = WhichCells(seurat, expression = MGEA5 > 0.5)) <- "MGEA5_lo"
-Idents(seurat, cells = WhichCells(seurat, expression = MGEA5 > 2)) <- "MGEA5_hi"
+BlendScatter <- function(object) {
+  FeaturePlot(
+    object,
+    features = c("OGA", "OGT"),
+    blend = TRUE,
+    blend.threshold = 0.1,
+    coord.fixed = TRUE,
+    order = TRUE,
+    ncol = 2
+  )
+}
 
-gene_sets <- list(msigdbr(species = "Homo sapiens", category = "H"),
-                  msigdbr(species = "Homo sapiens", category = "C7")) %>%
-  bind_rows() %>%
-  ListGeneSets(gene_set = "name", gene_name = "symbol")
+subset_seurat <- map(subset_seurat, function(x) {
+  x <- RunPCA(x)
+  x <- RunUMAP(x, dims = 1:30)
+  return(x)
+})
 
-gsva_res <- RunGSVA(seurat, gene_sets = gene_sets, average = TRUE, replicates = 3)
-
-gsva_res %>%
-  as.data.frame() %>%
-  rownames_to_column(var = "gene_set") %>%
-  write_tsv(file = here("MGEA5_GSVA_SCT.tsv"))
-
-gsva_stats <- RunStats(gsva_res, "msigdbr")
-
-pdf(here("plots/volcano_SCT.pdf"))
-
-EnhancedVolcano(topTable(fit, coef = "HIvNEG", n = Inf),
-                x = "logFC",
-                y = "adj.P.Val",
-                lab = rownames(topTable(fit, coef = "HIvNEG", n = Inf)),
-                FCcutoff = 0.5,
-                pCutoff = 0.01,
-                title = "MGEA5 hi v neg")
-
-EnhancedVolcano(topTable(fit, coef = "HIvLO", n = Inf),
-                x = "logFC",
-                y = "adj.P.Val",
-                pCutoff = 0.01,
-                lab = rownames(topTable(fit, coef = "HIvLO", n = Inf)),
-                FCcutoff = 0.5,
-                title = "MGEA5 hi v lo")
-
-EnhancedVolcano(topTable(fit, coef = "LOvNEG", n = Inf),
-                x = "logFC",
-                y = "adj.P.Val",
-                lab = rownames(topTable(fit, coef = "LOvNEG", n = Inf)),
-                selectLab = rownames(topTable(fit, coef = "LOvNEG", n = 5)),
-                FCcutoff = 0.5,
-                labSize = 2.5,
-                labhjust = 2,
-                pCutoff = 0.01,
-                drawConnectors = TRUE,
-                arrowheads = TRUE,
-                xlim = c(-1, 1),
-                ylim = c(0, 7.5),
-                title = "MGEA5 lo v neg")
-
+pdf(file = here("plots/blend_OGA_OGT.pdf"), width = 10, height = 2.5)
+for (i in seq_along(subset_seurat)) {
+  BlendScatter(subset_seurat[[i]]) + labs(title = names(subset_seurat)[[i]])
+}
 graphics.off()
-
-## Differential Expression ----
-seurat_sub <- subset(seurat, downsample = 1000)
-#markers <- FindAllMarkers(seurat_sub, test.use = "MAST")
-#write_tsv(markers, file = here("MGEA5_DE_results_SCT.tsv"))
-markers <- FindAllMarkers(seurat_sub, test.use = "MAST", features = hbp_genes)
-write_tsv(markers, file = here("MGEA5_DE_results_SCT_HBP.tsv"))

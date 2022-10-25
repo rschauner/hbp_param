@@ -1,3 +1,1 @@
-source("renv/activate.R")
-
-Sys.setenv(AML_DATA = "/mnt/ess/clonal_evolution/preprocessing/outs")
+Sys.setenv(AML_DATA = "~/AML_clonal_evolution/preprocessing/outs")
