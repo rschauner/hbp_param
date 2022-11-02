@@ -6,6 +6,8 @@ library(future)
 library(future.apply)
 library(ggplot2)
 library(here)
+library(broom)
+library(ggsignif)
 
 plan(multicore)
 
@@ -87,10 +89,8 @@ SimplifyDiseaseNames <- function(s) {
     )
 }
 
-
 NormalizeByCPM <- function(x) (x / sum(x)) * 1000000
 NormalizeByLogCPM <- function(x) log(((x + 1) / sum(x)) * 1000000)
-
 
 sj_path <- "/fs/ess/PCCF0022/Datasets/Public_Leukemia/sj_counts"
 nih_path <- "/fs/ess/PCCF0022/Datasets/Public_Leukemia/nih_counts"
@@ -149,7 +149,6 @@ message("Plotting")
 hbp_genes <- c("GFAP", "NAGK", "GNPNAT1", "PGM3", "UAP1", "OGT", "OGA", "GFPT2", "GFPT1")
 data_to_plot <- dt[simple_disease %in% c("AML", "Normal") & gene_name %in% hbp_genes & (age_group != "Unknown" | simple_disease == "Normal"), ]
 data_to_plot[, group := fifelse(simple_disease == "Normal", "Normal", age_group)][, group := factor(group, levels = c("Normal", "Pediatric", "Adult"))]
-library(ggsignif)
 
 WrapPlot <- function(ggplot) {
     ggplot +
