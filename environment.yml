@@ -24,3 +24,4 @@ dependencies:
   - r-future.apply
   - r-ggsignif
   - r-writexl
+  - bioconductor-deseq2

@@ -22,7 +22,6 @@ RunMAST <- function(object, group, ...) {
         ident.2 = ident2,
         group.by = group,
         assay = "RNA",
-        test.use = "MAST",
         logfc.threshold = 0,
         features = hbp_genes,
         ...
@@ -31,14 +30,12 @@ RunMAST <- function(object, group, ...) {
 }
 
 RunPerPatientDE <- function(object, group) {
-    print("splitting by patient")
     split <- SplitObject(object, split.by = "patient_id")
-    print("keeping")
     split <- keep(split, ~ nrow(unique(.x[[group]])) == 2)
-    print("running MAST")
-    markers <- map_dfr(split,
+    markers <- map_dfr(
+        split,
         RunMAST,
-        group = "timepoint",
+        group = group,
         .id = "patient_id"
     )
     return(markers)
@@ -46,8 +43,8 @@ RunPerPatientDE <- function(object, group) {
 
 seurat_sub <- map(subset_seurat, subset, downsample = 1000)
 
-# markers <- map2(seurat_sub, groups, RunMAST)
-# write_xlsx(markers, path = here("results/bulk_DE.xlsx"))
+markers <- map2(seurat_sub, groups, RunMAST)
+write_xlsx(markers, path = here("results/bulk_DE.xlsx"))
 
 message("Running Per Patient DE Analysis ------")
 
@@ -56,4 +53,5 @@ markers <- cache_rds(
     file = "per_pat_de.rds"
 )
 
+print(markers)
 write_xlsx(markers, path = here("results/per_patient_DE.xlsx"))
