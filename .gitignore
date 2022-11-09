@@ -12,4 +12,5 @@ cache
 slurm-*
 *.pdf
 *.tmpl
+data
 gene_reads_2017-06-05_v8_whole_blood.gct
