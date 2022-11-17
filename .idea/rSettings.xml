@@ -1,8 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="RSettings">
-    <option name="interpreterPath" value="/home/schaunr/mambaforge/envs/hbp/bin/R" />
-    <option name="remoteBasePath" value="/home/schaunr/hbp_param" />
-    <option name="remoteHost" value="7a96b504-4792-42d6-b358-b4dfcc6a2ef5" />
+    <option name="interpreterPath" value="$PROJECT_DIR$/../mambaforge/envs/hbp/bin/R" />
+    <option name="remoteBasePath" value="$PROJECT_DIR$" />
   </component>
 </project>
