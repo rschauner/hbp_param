@@ -16,6 +16,18 @@ RunMAST <- function(object, group, ...) {
     }
 
     hbp_genes <- c("GFAP", "NAGK", "GNPNAT1", "PGM3", "UAP1", "OGT", "OGA", "GFPT1", "GFPT2")
+
+    if (group == "cluster") {
+        res <- FindAllMarkers(
+            object = object,
+            group.by = group,
+            assay = "RNA",
+            logfc.threshold = 0,
+            features = hbp_genes
+        )
+        return(res)
+    }
+
     res <- FindMarkers(
         object = object,
         ident.1 = ident1,
@@ -53,5 +65,13 @@ markers <- cache_rds(
     file = "per_pat_de.rds"
 )
 
-print(markers)
 write_xlsx(markers, path = here("results/per_patient_DE.xlsx"))
+
+message("Running Per Cluster DE Analysis ------")
+
+markers <- cache_rds(
+    map(seurat_sub, RunMAST, "cluster"),
+    file = "per_cluster_de.rds"
+)
+
+write_xlsx(markers, path = here("results/per_cluster_DE.xlsx"))
